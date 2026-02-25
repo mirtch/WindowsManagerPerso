@@ -1,0 +1,16 @@
+# AHK compiled binaries
+*.exe
+
+# User data (stored in %APPDATA%, not here, but just in case)
+layouts.json
+settings.json
+debug.log
+
+# Editor / OS
+.vs/
+.vscode/
+*.swp
+*~
+Thumbs.db
+Desktop.ini
+.DS_Store

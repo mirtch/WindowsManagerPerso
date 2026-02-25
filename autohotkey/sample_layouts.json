@@ -1,0 +1,70 @@
+{
+  "Work": {
+    "name": "Work",
+    "timestamp": "2025-01-15 09:00:00",
+    "windows": [
+      {
+        "exe": "chrome.exe",
+        "exePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "title": "Inbox - Gmail - Google Chrome",
+        "cleanTitle": "Inbox - Gmail",
+        "hwnd": 12345678,
+        "class": "Chrome_WidgetWin_1",
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1040,
+        "state": "maximized",
+        "monitorIndex": 1
+      },
+      {
+        "exe": "Code.exe",
+        "exePath": "C:\\Users\\user\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+        "title": "workspace.code-workspace - Visual Studio Code",
+        "cleanTitle": "workspace.code-workspace",
+        "hwnd": 23456789,
+        "class": "Chrome_WidgetWin_1",
+        "x": 0,
+        "y": 0,
+        "w": 2560,
+        "h": 1440,
+        "state": "maximized",
+        "monitorIndex": 2
+      },
+      {
+        "exe": "Discord.exe",
+        "exePath": "C:\\Users\\user\\AppData\\Local\\Discord\\app-1.0.9999\\Discord.exe",
+        "title": "Discord",
+        "cleanTitle": "Discord",
+        "hwnd": 34567890,
+        "class": "Chrome_WidgetWin_1",
+        "x": 1920,
+        "y": 800,
+        "w": 400,
+        "h": 640,
+        "state": "normal",
+        "monitorIndex": 1
+      }
+    ]
+  },
+  "Focus": {
+    "name": "Focus",
+    "timestamp": "2025-01-15 10:30:00",
+    "windows": [
+      {
+        "exe": "cursor.exe",
+        "exePath": "C:\\Users\\user\\AppData\\Local\\Programs\\cursor\\Cursor.exe",
+        "title": "project - Cursor",
+        "cleanTitle": "project",
+        "hwnd": 45678901,
+        "class": "Chrome_WidgetWin_1",
+        "x": 0,
+        "y": 0,
+        "w": 2560,
+        "h": 1440,
+        "state": "maximized",
+        "monitorIndex": 1
+      }
+    ]
+  }
+}
