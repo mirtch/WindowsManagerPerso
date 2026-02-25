@@ -121,3 +121,65 @@ ClampToMonitor(x, y, w, h) {
     newH := Min(h, mb - mt)
     return Map("x", newX, "y", newY, "w", newW, "h", newH)
 }
+
+; ---------------------------------------------------------------------------
+; Monitor configuration fingerprint.
+; Returns a stable string describing the current monitor setup:
+;   "N:WxH@X,Y|WxH@X,Y|..."
+; Parts are sorted alphabetically for deterministic ordering regardless of
+; which monitor index Windows assigns to each display.
+; ---------------------------------------------------------------------------
+GetMonitorFingerprint() {
+    count := MonitorGetCount()
+    parts := []
+    Loop count {
+        MonitorGet(A_Index, &left, &top, &right, &bottom)
+        mw := right - left
+        mh := bottom - top
+        parts.Push(mw . "x" . mh . "@" . left . "," . top)
+    }
+
+    ; Bubble sort parts alphabetically for stable ordering
+    Loop parts.Length - 1 {
+        i := A_Index
+        Loop parts.Length - i {
+            j := A_Index + i
+            if StrCompare(parts[j], parts[j - 1], false) < 0 {
+                tmp          := parts[j]
+                parts[j]     := parts[j - 1]
+                parts[j - 1] := tmp
+            }
+        }
+    }
+
+    ; Join parts with "|"
+    result := count . ":"
+    for idx, part in parts {
+        if idx > 1
+            result .= "|"
+        result .= part
+    }
+    return result
+}
+
+; ---------------------------------------------------------------------------
+; Returns the DPI scale factor for the given monitor index.
+; 1.0 = 96 DPI (100%), 1.25 = 120 DPI (125%), 1.5 = 144 DPI (150%), etc.
+; Falls back to 1.0 if the DPI cannot be determined.
+; ---------------------------------------------------------------------------
+GetMonitorDPI(monitorIndex) {
+    MonitorGet(monitorIndex, &left, &top, &right, &bottom)
+    cx := (left + right) // 2
+    cy := (top + bottom) // 2
+    ; Pack point as Int64 for MonitorFromPoint
+    pt := (cy << 32) | (cx & 0xFFFFFFFF)
+    hMon := DllCall("MonitorFromPoint", "Int64", pt, "UInt", 0, "Ptr")
+    if !hMon
+        return 1.0
+    dpiX := 0
+    dpiY := 0
+    hr := DllCall("Shcore\GetDpiForMonitor", "Ptr", hMon, "UInt", 0, "UInt*", &dpiX, "UInt*", &dpiY, "UInt")
+    if hr != 0
+        return 1.0
+    return dpiX / 96.0
+}

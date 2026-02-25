@@ -140,6 +140,7 @@ CaptureWindowEntry(hwnd, vdMapData := 0) {
         }
 
         monIdx := GetMonitorForWindow(hwnd)
+        monDPI := GetMonitorDPI(monIdx)
 
         ; Virtual desktop info
         deskIdx := 0
@@ -165,6 +166,7 @@ CaptureWindowEntry(hwnd, vdMapData := 0) {
         entry["h"]            := h
         entry["state"]        := state
         entry["monitorIndex"] := monIdx
+        entry["dpi"]          := monDPI
         entry["desktopIndex"] := deskIdx
         entry["desktopGuid"]  := deskGuid
         return entry
@@ -399,6 +401,38 @@ TitleSimilarity(a, b) {
 }
 
 ; ---------------------------------------------------------------------------
+; Check whether a window is already at the saved position/state.
+; Returns true if the window matches (within tolerance), false otherwise.
+; ---------------------------------------------------------------------------
+IsAlreadyPlaced(hwnd, entry) {
+    try {
+        WinGetPos(&x, &y, &w, &h, hwnd)
+        minmax := WinGetMinMax(hwnd)
+        state := "normal"
+        if minmax == 1
+            state := "maximized"
+        else if minmax == -1
+            state := "minimized"
+        if state != entry["state"]
+            return false
+        if state != "normal"
+            return true
+        tolerance := 10
+        if Abs(x - entry["x"]) > tolerance
+            return false
+        if Abs(y - entry["y"]) > tolerance
+            return false
+        if Abs(w - entry["w"]) > tolerance
+            return false
+        if Abs(h - entry["h"]) > tolerance
+            return false
+        return true
+    } catch {
+        return false
+    }
+}
+
+; ---------------------------------------------------------------------------
 ; Move, resize, and set state for a window according to a saved entry.
 ; Handles the maximized-on-correct-monitor case.
 ; ---------------------------------------------------------------------------
@@ -484,6 +518,7 @@ LaunchMissingApps(entries) {
             try Run(entry["exe"])
         }
     }
+    DebugLog("LaunchMissing: launched " . launched.Count . " apps")
 }
 
 ; ---------------------------------------------------------------------------
@@ -558,5 +593,45 @@ _UriDecode(str) {
             break
         result := StrReplace(result, m[0], Chr(("0x" . m[1]) + 0))
     }
+    return result
+}
+
+; ---------------------------------------------------------------------------
+; Compare saved windows against the current desktop state.
+; Returns a Map with keys: "matched", "moved", "new", "missing"
+;   matched = windows at same position/state
+;   moved   = windows found but position/state changed
+;   new     = windows on desktop not in saved layout
+;   missing = saved windows not found on desktop
+; ---------------------------------------------------------------------------
+SnapshotDiff(savedWindows) {
+    current := CaptureAllWindows()
+    result := Map("matched", [], "moved", [], "new", [], "missing", [])
+    currentMap := Map()
+    for w in current {
+        key := StrLower(w["exe"]) . "|" . StrLower(w["cleanTitle"])
+        currentMap[key] := w
+    }
+    for saved in savedWindows {
+        key := StrLower(saved["exe"]) . "|" . StrLower(saved["cleanTitle"])
+        if currentMap.Has(key) {
+            cur := currentMap[key]
+            tolerance := 10
+            if Abs(cur["x"] - saved["x"]) <= tolerance
+                && Abs(cur["y"] - saved["y"]) <= tolerance
+                && Abs(cur["w"] - saved["w"]) <= tolerance
+                && Abs(cur["h"] - saved["h"]) <= tolerance
+                && cur["state"] == saved["state"] {
+                result["matched"].Push(saved)
+            } else {
+                result["moved"].Push(saved)
+            }
+            currentMap.Delete(key)
+        } else {
+            result["missing"].Push(saved)
+        }
+    }
+    for key, w in currentMap
+        result["new"].Push(w)
     return result
 }

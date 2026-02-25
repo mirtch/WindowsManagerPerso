@@ -30,6 +30,15 @@ SetupTray() {
     _OnSettings(*) {
         ShowSettingsDialog()
     }
+    _OnErrorLog(*) {
+        ShowErrorLog()
+    }
+    _OnCycle(*) {
+        CycleLayoutAction()
+    }
+    _OnQuickSwitch(*) {
+        QuickSwitchAction()
+    }
     _OnReload(*) {
         Reload()
     }
@@ -42,31 +51,201 @@ SetupTray() {
     tray.Add("Restore Layout`tCtrl+Alt+R",    _OnRestore)
     tray.Add()
     tray.Add("Manage Layouts",                _OnManage)
+    tray.Add("Next Layout`tCtrl+Alt+N",       _OnCycle)
+    tray.Add("Quick Switch`tCtrl+Alt+Tab",    _OnQuickSwitch)
     tray.Add("Settings",                      _OnSettings)
+    tray.Add("Error Log",                    _OnErrorLog)
     tray.Add()
     tray.Add("Reload Script",                _OnReload)
     tray.Add("Exit",                         _OnExit)
 }
 
 ; ---------------------------------------------------------------------------
-; Toast-style notification (ToolTip #1, auto-clears)
+; Tray icon state (changes the icon to reflect current app state)
 ; ---------------------------------------------------------------------------
+SetTrayIconState(state) {
+    switch state {
+        case "idle":
+            try TraySetIcon("shell32.dll", 162)
+        case "working":
+            try TraySetIcon("shell32.dll", 239)
+        case "error":
+            try TraySetIcon("shell32.dll", 110)
+        case "success":
+            try TraySetIcon("shell32.dll", 297)
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Toast-style notification (custom dark GUI, auto-dismisses)
+; ---------------------------------------------------------------------------
+global _ToastGui := false
+
 ShowToast(msg, durationMs := 3000) {
-    ToolTip(msg)
-    SetTimer(ClearToast, -durationMs)
+    global _ToastGui
+
+    ; Destroy previous toast
+    if _ToastGui {
+        try _ToastGui.Destroy()
+        _ToastGui := false
+    }
+
+    ; Create borderless dark toast
+    toast := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20")
+    toast.BackColor := "1A1A2E"
+    toast.SetFont("s10 cFFFFFF", "Segoe UI")
+    toast.MarginX := 16
+    toast.MarginY := 10
+    toast.Add("Text", "cFFFFFF", msg)
+
+    ; Position at bottom-right of primary monitor
+    workArea := GetMonitorWorkArea(MonitorGetPrimary())
+    toast.Show("NoActivate Hide")
+    toast.GetPos(, , &tw, &th)
+    tx := workArea["right"] - tw - 16
+    ty := workArea["bottom"] - th - 16
+    toast.Show("NoActivate x" . tx . " y" . ty)
+
+    ; Rounded corners (Windows 11)
+    try DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", toast.Hwnd,
+        "UInt", 33, "Int*", 2, "UInt", 4)
+
+    _ToastGui := toast
+    SetTimer(DismissToast, -durationMs)
 }
 
-ClearToast() {
-    ToolTip()
+DismissToast() {
+    global _ToastGui
+    if _ToastGui {
+        try _ToastGui.Destroy()
+        _ToastGui := false
+    }
 }
 
-; Progress notification uses ToolTip #2 so it doesn't stomp on toasts.
+; ---------------------------------------------------------------------------
+; Visual progress bar (dark GUI with progress control)
+; ---------------------------------------------------------------------------
+global _ProgressGui := false
+global _ProgressBar := false
+global _ProgressText := false
+
 ShowProgress(msg) {
-    ToolTip(msg, , , 2)
+    global _ProgressGui, _ProgressBar, _ProgressText
+    if _ProgressGui {
+        try _ProgressText.Text := msg
+        RegExMatch(msg, "(\d+)/(\d+)", &m)
+        if m {
+            pct := Round(Integer(m[1]) / Integer(m[2]) * 100)
+            try _ProgressBar.Value := pct
+        }
+        return
+    }
+    pg := Gui("+AlwaysOnTop -Caption +ToolWindow")
+    pg.BackColor := "1A1A2E"
+    pg.SetFont("s9 cFFFFFF", "Segoe UI")
+    pg.MarginX := 12
+    pg.MarginY := 8
+    _ProgressText := pg.Add("Text", "cFFFFFF w280", msg)
+    _ProgressBar := pg.Add("Progress", "w280 h6 c4EC9B0 Background333333", 0)
+    workArea := GetMonitorWorkArea(MonitorGetPrimary())
+    pg.Show("NoActivate Hide")
+    pg.GetPos(, , &pw, &ph)
+    px := workArea["right"] - pw - 16
+    py := workArea["bottom"] - ph - 60
+    pg.Show("NoActivate x" . px . " y" . py)
+    try DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", pg.Hwnd,
+        "UInt", 33, "Int*", 2, "UInt", 4)
+    _ProgressGui := pg
 }
 
 HideProgress() {
-    ToolTip(, , , 2)
+    global _ProgressGui, _ProgressBar, _ProgressText
+    if _ProgressGui {
+        try _ProgressGui.Destroy()
+        _ProgressGui := false
+        _ProgressBar := false
+        _ProgressText := false
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Notification level helpers
+;   Levels (from most to least verbose): verbose > normal > errors > silent
+;   A message is shown when its level meets or exceeds the configured level.
+; ---------------------------------------------------------------------------
+
+; Returns true if a message at msgLevel should be shown given the current setting.
+ShouldNotify(msgLevel) {
+    global Settings
+    levelRank := Map("verbose", 1, "normal", 2, "errors", 3, "silent", 4)
+    setting := Settings.Has("notificationLevel") ? Settings["notificationLevel"] : "normal"
+    if !levelRank.Has(setting)
+        setting := "normal"
+    if !levelRank.Has(msgLevel)
+        msgLevel := "normal"
+    return levelRank[msgLevel] >= levelRank[setting]
+}
+
+; Show a toast notification only if the notification level allows it.
+Notify(msg, level := "normal", durationMs := 3000) {
+    if ShouldNotify(level)
+        ShowToast(msg, durationMs)
+}
+
+; Show an error notification. Uses MsgBox unless level is "silent".
+NotifyError(msg, title := "Error") {
+    global Settings, AppName
+    setting := Settings.Has("notificationLevel") ? Settings["notificationLevel"] : "normal"
+    if setting == "silent"
+        return
+    if setting == "errors" || setting == "normal" || setting == "verbose"
+        MsgBox(msg, AppName . " - " . title, "IconX")
+}
+
+; ---------------------------------------------------------------------------
+; Error log - keeps a rolling history of errors for review
+; ---------------------------------------------------------------------------
+global _ErrorHistory := []
+
+LogError(msg, title := "Error") {
+    global _ErrorHistory
+    _ErrorHistory.Push(Map("time", FormatTime(, "HH:mm:ss"), "msg", msg, "title", title))
+    if _ErrorHistory.Length > 50
+        _ErrorHistory.RemoveAt(1)
+    NotifyError(msg, title)
+}
+
+ShowErrorLog() {
+    global _ErrorHistory
+    logGui := Gui("+Resize +MinSize400x200", "Error Log")
+    logGui.SetFont("s9", "Consolas")
+    logGui.MarginX := 8
+    logGui.MarginY := 8
+    content := ""
+    if _ErrorHistory.Length == 0 {
+        content := "(no errors)"
+    } else {
+        for err in _ErrorHistory
+            content .= "[" . err["time"] . "] " . err["title"] . ": " . err["msg"] . "`r`n`r`n"
+    }
+    logGui.Add("Edit", "w500 h300 ReadOnly -WantReturn", content)
+    logGui.Add("Button", "Default w80", "Close").OnEvent("Click", (*) => logGui.Destroy())
+    logGui.OnEvent("Close", (*) => logGui.Destroy())
+    ApplyDarkTheme(logGui)
+    logGui.Show()
+}
+
+; ---------------------------------------------------------------------------
+; Dark theme helper - applies dark background and title bar to any Gui
+; ---------------------------------------------------------------------------
+ApplyDarkTheme(guiObj) {
+    guiObj.BackColor := "1E1E2E"
+    ; Dark title bar (Windows 10 1809+)
+    try DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", guiObj.Hwnd,
+        "UInt", 20, "Int*", 1, "UInt", 4)
+    ; Rounded corners (Windows 11)
+    try DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", guiObj.Hwnd,
+        "UInt", 33, "Int*", 2, "UInt", 4)
 }
 
 ; ---------------------------------------------------------------------------
@@ -101,6 +280,7 @@ ShowSaveDialog(callback) {
 
     saveGui.OnEvent("Close", OnCancel)
     nameEdit.Focus()
+    ApplyDarkTheme(saveGui)
     saveGui.Show()
 }
 
@@ -178,6 +358,33 @@ ShowRestoreDialog(layoutNames, callback) {
     btnRow.OnEvent("Click", OnRestore)
     btnCancel := restGui.Add("Button", "x+8 w90", "Cancel")
     btnCancel.OnEvent("Click", OnCancel)
+    btnDiff := restGui.Add("Button", "x+8 w100", "Compare")
+    OnDiff(*) {
+        idx := lb.Value
+        if idx == 0 || idx > layoutNames.Length
+            return
+        name := layoutNames[idx]
+        if !Layouts.Has(name)
+            return
+        diff := SnapshotDiff(Layouts[name]["windows"])
+        lines := "=== Diff: " . name . " vs Current ===`r`n`r`n"
+        lines .= "In place: " . diff["matched"].Length . "`r`n"
+        lines .= "Moved: " . diff["moved"].Length . "`r`n"
+        lines .= "Missing: " . diff["missing"].Length . "`r`n"
+        lines .= "New windows: " . diff["new"].Length . "`r`n"
+        if diff["moved"].Length > 0 {
+            lines .= "`r`n-- Moved --`r`n"
+            for w in diff["moved"]
+                lines .= "  " . w["exe"] . " - " . w["cleanTitle"] . "`r`n"
+        }
+        if diff["missing"].Length > 0 {
+            lines .= "`r`n-- Missing --`r`n"
+            for w in diff["missing"]
+                lines .= "  " . w["exe"] . " - " . w["cleanTitle"] . "`r`n"
+        }
+        preview.Value := lines
+    }
+    btnDiff.OnEvent("Click", OnDiff)
 
     OnRestore(*) {
         idx := lb.Value
@@ -194,6 +401,7 @@ ShowRestoreDialog(layoutNames, callback) {
     }
 
     restGui.OnEvent("Close", OnCancel)
+    ApplyDarkTheme(restGui)
     restGui.Show()
 }
 
@@ -307,11 +515,31 @@ ShowManageDialog() {
     btnClose.OnEvent("Click",   OnMgClose)
     mgGui.OnEvent("Close",      OnMgClose)
 
+    ; -- Export / Import row --
+    btnExport := mgGui.Add("Button", "xm y+6 w110", "Export")
+    btnImport := mgGui.Add("Button", "x+6 w110", "Import")
+
+    OnExport(*) {
+        name := GetSelectedName()
+        if name == "" {
+            MsgBox("Select a layout first.", "Export", "Icon!")
+            return
+        }
+        ExportLayout(name)
+    }
+    OnImport(*) {
+        ImportLayout()
+        RefreshList()
+    }
+    btnExport.OnEvent("Click", OnExport)
+    btnImport.OnEvent("Click", OnImport)
+
+    ApplyDarkTheme(mgGui)
     mgGui.Show()
 }
 
 ; ---------------------------------------------------------------------------
-; Settings Dialog
+; Settings Dialog (tabbed: General, Startup, Advanced)
 ; ---------------------------------------------------------------------------
 ShowSettingsDialog() {
     global Settings, Layouts
@@ -321,16 +549,40 @@ ShowSettingsDialog() {
     setGui.MarginX := 14
     setGui.MarginY := 10
 
-    ; -- Auto-restore --
-    cbAuto := setGui.Add("Checkbox", "vAutoRestore", "Auto-restore layout on Windows login")
+    tabs := setGui.Add("Tab3", "w380 h320", ["General", "Startup", "Advanced"])
+
+    ; Tab 1: General
+    tabs.UseTab(1)
+    cbLaunch := setGui.Add("Checkbox", "vLaunchMissing", "Launch missing apps when restoring")
+    cbLaunch.Value := Settings.Has("launchMissing") ? Settings["launchMissing"] : 0
+
+    setGui.Add("Text", "xp y+10", "Auto-save interval (minutes, 0 = off):")
+    autoSaveEdit := setGui.Add("Edit", "w70 Number vAutoSaveMinutes",
+        Settings.Has("autoSaveMinutes") ? Settings["autoSaveMinutes"] : 15)
+
+    setGui.Add("Text", "xp y+10", "Notification level:")
+    notifLevels := ["verbose", "normal", "errors", "silent"]
+    ddlNotif := setGui.Add("DropDownList", "w200 vNotificationLevel", notifLevels)
+    currentNotif := Settings.Has("notificationLevel") ? Settings["notificationLevel"] : "normal"
+    notifIdx := 2
+    Loop notifLevels.Length {
+        if notifLevels[A_Index] == currentNotif {
+            notifIdx := A_Index
+            break
+        }
+    }
+    ddlNotif.Choose(notifIdx)
+
+    ; Tab 2: Startup
+    tabs.UseTab(2)
+    cbAuto := setGui.Add("Checkbox", "vAutoRestore", "Auto-restore layout on login")
     cbAuto.Value := Settings.Has("autoRestore") ? Settings["autoRestore"] : 0
 
-    ; -- Startup layout dropdown --
-    setGui.Add("Text", "xm y+8", "Startup layout:")
+    setGui.Add("Text", "xp y+10", "Startup layout:")
     names := ["(none)"]
     for k, _ in Layouts
         names.Push(k)
-    ddl := setGui.Add("DropDownList", "xm w250 vStartupLayout", names)
+    ddl := setGui.Add("DropDownList", "w250 vStartupLayout", names)
     startupVal := Settings.Has("startupLayout") ? Settings["startupLayout"] : ""
     choiceIdx := 1
     Loop names.Length {
@@ -341,27 +593,11 @@ ShowSettingsDialog() {
     }
     ddl.Choose(choiceIdx)
 
-    ; -- Restore delay --
-    setGui.Add("Text", "xm y+8", "Restore delay after login (seconds):")
-    delayEdit := setGui.Add("Edit", "xm w70 Number vRestoreDelay",
-                            Settings.Has("restoreDelay") ? Settings["restoreDelay"] : 10)
+    setGui.Add("Text", "xp y+10", "Restore delay after login (seconds):")
+    delayEdit := setGui.Add("Edit", "w70 Number vRestoreDelay",
+        Settings.Has("restoreDelay") ? Settings["restoreDelay"] : 10)
 
-    ; -- Launch missing --
-    cbLaunch := setGui.Add("Checkbox", "xm y+8 vLaunchMissing", "Launch missing apps when restoring")
-    cbLaunch.Value := Settings.Has("launchMissing") ? Settings["launchMissing"] : 0
-
-    ; -- Auto-save interval --
-    setGui.Add("Text", "xm y+8", "Auto-save interval (minutes, 0 = disabled):")
-    autoSaveEdit := setGui.Add("Edit", "xm w70 Number vAutoSaveMinutes",
-                               Settings.Has("autoSaveMinutes") ? Settings["autoSaveMinutes"] : 15)
-
-    ; -- Debug mode --
-    cbDebug := setGui.Add("Checkbox", "xm y+4 vDebugMode", "Debug mode (log to debug.log)")
-    cbDebug.Value := Settings.Has("debugMode") ? Settings["debugMode"] : 0
-
-    ; -- Startup integration --
-    setGui.Add("GroupBox", "xm y+12 w350 h68", "Windows Startup Integration")
-
+    setGui.Add("GroupBox", "xp y+14 w350 h68", "Windows Startup Integration")
     OnAddStartup(*) {
         AddToStartup()
         ShowToast("Added to Windows startup.")
@@ -370,44 +606,49 @@ ShowSettingsDialog() {
         RemoveFromStartup()
         ShowToast("Removed from Windows startup.")
     }
-
     setGui.Add("Button", "xp+10 yp+22 w155", "Add to Startup").OnEvent("Click", OnAddStartup)
     setGui.Add("Button", "x+8 w155", "Remove from Startup").OnEvent("Click", OnRemoveStartup)
 
-    ; -- Buttons --
+    ; Tab 3: Advanced
+    tabs.UseTab(3)
+    cbDebug := setGui.Add("Checkbox", "vDebugMode", "Debug mode (log to debug.log)")
+    cbDebug.Value := Settings.Has("debugMode") ? Settings["debugMode"] : 0
+
+    setGui.Add("Text", "xp y+10", "Max layout versions to keep:")
+    setGui.Add("Edit", "w70 Number vMaxLayoutVersions",
+        Settings.Has("maxLayoutVersions") ? Settings["maxLayoutVersions"] : 3)
+
+    ; Buttons outside tabs
+    tabs.UseTab(0)
     setGui.Add("Button", "xm y+14 Default w100", "Save").OnEvent("Click", OnSave)
     setGui.Add("Button", "x+8 w90", "Cancel").OnEvent("Click", (*) => setGui.Destroy())
 
     OnSave(*) {
         saved := setGui.Submit(false)
-        Settings["autoRestore"]     := saved.AutoRestore
-        Settings["restoreDelay"]    := saved.RestoreDelay != "" ? Integer(saved.RestoreDelay) : 10
-        Settings["launchMissing"]   := saved.LaunchMissing
-        Settings["autoSaveMinutes"] := saved.AutoSaveMinutes != "" ? Integer(saved.AutoSaveMinutes) : 15
-        Settings["debugMode"]       := saved.DebugMode
-
-        ; Resolve chosen startup layout
+        Settings["autoRestore"]       := saved.AutoRestore
+        Settings["restoreDelay"]      := saved.RestoreDelay != "" ? Integer(saved.RestoreDelay) : 10
+        Settings["launchMissing"]     := saved.LaunchMissing
+        Settings["autoSaveMinutes"]   := saved.AutoSaveMinutes != "" ? Integer(saved.AutoSaveMinutes) : 15
+        Settings["debugMode"]         := saved.DebugMode
+        Settings["notificationLevel"] := ddlNotif.Text
+        Settings["maxLayoutVersions"] := saved.MaxLayoutVersions != "" ? Integer(saved.MaxLayoutVersions) : 3
         chosen := ddl.Text
         Settings["startupLayout"] := (chosen == "(none)") ? "" : chosen
-
-        ; Sync debug mode globally
         global DebugMode
         DebugMode := Settings["debugMode"]
-
-        ; Update auto-save timer
         autoMin := Settings["autoSaveMinutes"]
         if autoMin > 0 {
             SetTimer(AutoSave, autoMin * 60000)
         } else {
             SetTimer(AutoSave, 0)
         }
-
         SaveSettings()
         setGui.Destroy()
-        ShowToast("Settings saved.")
+        Notify("Settings saved.")
     }
 
     setGui.OnEvent("Close", (*) => setGui.Destroy())
+    ApplyDarkTheme(setGui)
     setGui.Show()
 }
 
