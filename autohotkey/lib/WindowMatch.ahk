@@ -573,8 +573,10 @@ _MoveToSavedDesktop(hwnd, entry) {
 
         ; Try the internal API first — works for windows owned by other processes
         ; (Edge, Chrome, Explorer, etc.) where the public API returns E_ACCESSDENIED.
+        ; Skipped when vdApiMode="public-only" (set by system scan on Win10 / pre-24H2).
         ok := false
-        if VD_Internal_Init()
+        vdMode := Settings.Has("vdApiMode") ? Settings["vdApiMode"] : "auto"
+        if vdMode != "public-only" && VD_Internal_Init()
             ok := VD_Internal_MoveToDesktop(hwnd, targetGuid)
 
         ; Fall back to the public API (works only for AHK-owned windows)

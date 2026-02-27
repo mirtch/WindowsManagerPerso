@@ -1,0 +1,3 @@
+# Workspace Layout Manager
+
+**Workspace Layout Manager** est un petit outil Windows qui mémorise la position, la taille et le bureau virtuel de toutes tes fenêtres ouvertes, puis les remet exactement à leur place en un raccourci clavier. Tu sauvegardes ton arrangement de travail avec `Ctrl+Alt+S`, et tu le restaures avec `Ctrl+Alt+R` — peu importe combien de fenêtres tu as, sur combien d'écrans ou de bureaux virtuels elles sont réparties. Il s'adapte automatiquement à ta configuration matérielle (résolution, nombre d'écrans, version de Windows) et inclut un bouton de scan système pour configurer le tout en un clic sur n'importe quelle machine.

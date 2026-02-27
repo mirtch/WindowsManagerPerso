@@ -311,7 +311,7 @@ ShowRestoreDialog(layoutNames, callback) {
     restGui.MarginY := 10
 
     restGui.Add("Text", , "Select a layout to restore:")
-    lb := restGui.Add("ListBox", "w200 r12 vSelection")
+    lb := restGui.Add("ListBox", "w200 r12 Background2A2A3E vSelection")
 
     ; Preview panel on the right
     preview := restGui.Add("Edit", "x+10 yp w320 r12 ReadOnly -WantReturn Background2A2A3E")
@@ -427,7 +427,12 @@ ShowManageDialog() {
     mgGui.MarginY := 10
 
     mgGui.Add("Text", , "Saved layouts:")
-    lv := mgGui.Add("ListView", "w460 h260 -Multi Grid", ["Layout Name", "Windows", "Saved At"])
+    lv := mgGui.Add("ListView", "w460 h260 -Multi Grid Background1E1E2E", ["Layout Name", "Windows", "Saved At"])
+    ; Set ListView text and background colors via Win32 messages
+    ; COLORREF for 1E1E2E = 0x2E1E1E, white = 0xFFFFFF
+    SendMessage(0x1001, 0, 0x2E1E1E, lv)   ; LVM_SETBKCOLOR
+    SendMessage(0x1026, 0, 0x2E1E1E, lv)   ; LVM_SETTEXTBKCOLOR
+    SendMessage(0x1024, 0, 0xFFFFFF, lv)   ; LVM_SETTEXTCOLOR
 
     ; Nested helpers — closures over lv, mgGui, Layouts, Settings
     RefreshList() {
@@ -574,7 +579,7 @@ ShowSettingsDialog() {
 
     setGui.Add("Text", "xp y+16", "Notification level:")
     notifLevels := ["verbose", "normal", "errors", "silent"]
-    ddlNotif := setGui.Add("DropDownList", "xp y+4 w200 vNotificationLevel", notifLevels)
+    ddlNotif := setGui.Add("DropDownList", "xp y+4 w200 Background2A2A3E vNotificationLevel", notifLevels)
     currentNotif := Settings.Has("notificationLevel") ? Settings["notificationLevel"] : "normal"
     notifIdx := 2
     Loop notifLevels.Length {
@@ -594,7 +599,7 @@ ShowSettingsDialog() {
     names := ["(none)"]
     for k, _ in Layouts
         names.Push(k)
-    ddl := setGui.Add("DropDownList", "xp y+4 w280 vStartupLayout", names)
+    ddl := setGui.Add("DropDownList", "xp y+4 w280 Background2A2A3E vStartupLayout", names)
     startupVal := Settings.Has("startupLayout") ? Settings["startupLayout"] : ""
     choiceIdx := 1
     Loop names.Length {
@@ -630,6 +635,9 @@ ShowSettingsDialog() {
     setGui.Add("Edit", "xp y+4 w70 Number Background2A2A3E vMaxLayoutVersions",
         Settings.Has("maxLayoutVersions") ? Settings["maxLayoutVersions"] : 3)
 
+    setGui.Add("Text", "xp y+20", "System Compatibility:")
+    setGui.Add("Button", "xp y+6 w200", "Scan && Auto-Configure").OnEvent("Click", (*) => ShowSystemScanDialog())
+
     ; ── Buttons below tabs ──────────────────────────────────────────────────
     tabs.UseTab(0)
     ; Explicit Y below Tab3: MarginY(12) + tabH(260) + gap(10) = 282
@@ -664,6 +672,79 @@ ShowSettingsDialog() {
     setGui.OnEvent("Close", (*) => setGui.Destroy())
     ApplyDarkTheme(setGui)
     setGui.Show()
+}
+
+; ---------------------------------------------------------------------------
+; System scan — detects OS version, monitor setup, and VD API support,
+; then saves optimal settings so the script adapts to the current machine.
+; ---------------------------------------------------------------------------
+ShowSystemScanDialog() {
+    r := ScanSystemConfig()
+
+    lines := "OS: " . r["osName"] . " (Build " . r["build"] . ")`r`n`r`n"
+    lines .= "Virtual Desktop API:`r`n"
+    lines .= "  Public API:   " . (r["vdPublic"]   ? "OK" : "Not available") . "`r`n"
+    lines .= "  Internal API: " . (r["vdInternal"] ? "OK" : "Not available") . "`r`n`r`n"
+    lines .= "Monitors (" . r["monCount"] . " detected):`r`n"
+    for m in r["monitors"]
+        lines .= "  #" . m["idx"] . ": " . m["w"] . " x " . m["h"] . "`r`n"
+    lines .= "`r`nSettings applied:`r`n"
+    lines .= "  VD mode: " . r["vdApiMode"] . "`r`n"
+    if !r["vdInternal"]
+        lines .= "`r`nNote: Full virtual desktop restore requires Windows 11 24H2+.`r`n"
+            . "Windows will still be positioned on the correct monitor."
+
+    sg := Gui("+AlwaysOnTop", "System Scan - Workspace Layout Manager")
+    sg.SetFont("s10 cFFFFFF", "Segoe UI")
+    sg.MarginX := 16
+    sg.MarginY := 14
+    sg.Add("Text", , "Detected environment:")
+    sg.Add("Edit", "w380 h220 ReadOnly -WantReturn Background2A2A3E", lines)
+    sg.Add("Button", "Default w80 xm", "OK").OnEvent("Click", (*) => sg.Destroy())
+    sg.OnEvent("Close", (*) => sg.Destroy())
+    ApplyDarkTheme(sg)
+    sg.Show()
+}
+
+ScanSystemConfig() {
+    global Settings
+
+    ; --- OS version ---
+    buildStr := "0"
+    try buildStr := RegRead("HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion", "CurrentBuild")
+    buildNum := Integer(buildStr)
+    osName := buildNum >= 26100 ? "Windows 11 24H2+"
+            : buildNum >= 22621 ? "Windows 11 22H2/23H2"
+            : buildNum >= 22000 ? "Windows 11 21H2"
+            : buildNum > 0      ? "Windows 10"
+            : "Unknown"
+
+    ; --- Virtual desktop APIs ---
+    vdPublic   := VD_Init()
+    vdInternal := VD_Internal_Init()
+
+    ; --- Monitors ---
+    monCount := MonitorGetCount()
+    monitors := []
+    Loop monCount {
+        MonitorGet(A_Index, &mL, &mT, &mR, &mB)
+        monitors.Push(Map("idx", A_Index, "w", mR - mL, "h", mB - mT))
+    }
+
+    ; --- Persist inferred VD mode ---
+    vdApiMode := vdInternal ? "auto" : "public-only"
+    Settings["vdApiMode"] := vdApiMode
+    SaveSettings()
+
+    return Map(
+        "build",      buildStr,
+        "osName",     osName,
+        "vdPublic",   vdPublic,
+        "vdInternal", vdInternal,
+        "monCount",   monCount,
+        "monitors",   monitors,
+        "vdApiMode",  vdApiMode
+    )
 }
 
 ; ---------------------------------------------------------------------------
