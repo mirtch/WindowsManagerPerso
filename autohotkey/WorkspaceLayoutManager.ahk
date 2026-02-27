@@ -6,7 +6,7 @@
 ; Hotkeys (configurable in the HOTKEYS section below):
 ;   Ctrl+Alt+S    = Save current layout (with name prompt)
 ;   Ctrl+Alt+Q    = Quick-save to "QuickSave" (no prompt)
-;   Ctrl+Alt+R    = Restore layout (from list)
+;   Ctrl+Alt+R    = Quick-restore most recently saved layout (no prompt)
 ;   Ctrl+Alt+1    = Quick-restore 1st layout
 ;   Ctrl+Alt+2    = Quick-restore 2nd layout
 ;   Ctrl+Alt+3    = Quick-restore 3rd layout
@@ -87,7 +87,7 @@ Initialize() {
 ; =============================================================================
 ^!s:: SaveLayoutAction()        ; Ctrl+Alt+S - Save (with name prompt)
 ^!q:: QuickSaveAction()         ; Ctrl+Alt+Q - Quick-save to "QuickSave"
-^!r:: RestoreLayoutAction()     ; Ctrl+Alt+R - Restore (pick from list)
+^!r:: QuickRestoreLastAction()  ; Ctrl+Alt+R - Quick-restore most recently saved layout
 ^!1:: QuickRestore(1)           ; Ctrl+Alt+1
 ^!2:: QuickRestore(2)           ; Ctrl+Alt+2
 ^!3:: QuickRestore(3)           ; Ctrl+Alt+3
@@ -107,6 +107,46 @@ SaveLayoutAction() {
 
 QuickSaveAction() {
     SaveLayout("QuickSave")
+}
+
+; Restore the layout with the most recent timestamp — no prompt.
+QuickRestoreLastAction() {
+    global Layouts, Settings
+    if !Layouts.Count {
+        Notify("No saved layouts.", "normal")
+        return
+    }
+    ; Use the saved monitor profile mapping — set by explicit named restores.
+    ; This lets the user "pin" a layout to their screen setup via the menu,
+    ; and Ctrl+Alt+R will always restore that layout without overwriting the pin.
+    fp       := GetMonitorFingerprint()
+    profiles := Settings.Has("monitorProfiles") ? Settings["monitorProfiles"] : Map()
+    if profiles.Has(fp) && Layouts.Has(profiles[fp]) {
+        name := profiles[fp]
+        job := RestoreJob(Layouts[name], Settings, true)  ; noProfileUpdate=true
+        global _ActiveRestoreJob := job
+        job.Start()
+        global _CurrentLayoutName := name
+        Notify("Restoring: " . name . "…")
+        return
+    }
+    ; Fall back: most recently saved non-AutoSave layout
+    latest   := ""
+    latestTs := ""
+    for name, layout in Layouts {
+        if SubStr(name, 1, 8) == "AutoSave"
+            continue
+        ts := layout.Has("timestamp") ? layout["timestamp"] : ""
+        if StrCompare(ts, latestTs) > 0 {
+            latestTs := ts
+            latest   := name
+        }
+    }
+    if latest == "" {
+        Notify("No layout with a timestamp.", "normal")
+        return
+    }
+    RestoreLayout(latest)
 }
 
 ; Snapshot the current version of a layout before it is overwritten.
@@ -146,6 +186,12 @@ SaveLayout(name) {
 
     DebugLog("=== Capturing layout: " . name . " ===")
     windows := CaptureAllWindows()
+
+    if windows.Length == 0 {
+        Notify("Nothing captured — layout not saved. (No visible windows found?)", "errors")
+        DebugLog("SaveLayout: aborted — 0 windows captured")
+        return
+    }
 
     DebugLog("Captured " . windows.Length . " windows")
     for entry in windows {
@@ -284,16 +330,17 @@ SnapActiveToZone(direction) {
 ; RESTORE JOB  - async, timer-driven so UI stays responsive
 ; =============================================================================
 class RestoreJob {
-    __New(layout, settings) {
-        this.layout   := layout
-        this.settings := settings
-        this.total    := layout["windows"].Length
-        this.placed   := 0
-        this.remaining := []
-        this.attempt  := 0
-        this.maxAttempts := 13
-        this.placedHwnds := Map()
-        this.bound    := ObjBindMethod(this, "Retry")
+    __New(layout, settings, noProfileUpdate := false) {
+        this.layout          := layout
+        this.settings        := settings
+        this.noProfileUpdate := noProfileUpdate
+        this.total           := layout["windows"].Length
+        this.placed          := 0
+        this.remaining       := []
+        this.attempt         := 0
+        this.maxAttempts     := 13
+        this.placedHwnds     := Map()
+        this.bound           := ObjBindMethod(this, "Retry")
     }
 
     GetDelay() {
@@ -336,6 +383,14 @@ class RestoreJob {
             ; Pass DebugLog directly as the match callback (it's a global function)
             hwnd := FindMatchingWindow(entry, filtered, DebugLog)
             if hwnd {
+                ; Remove matched hwnd from filtered so subsequent entries can't claim it
+                filteredNext := []
+                for h in filtered {
+                    if h != hwnd
+                        filteredNext.Push(h)
+                }
+                filtered := filteredNext
+
                 if IsAlreadyPlaced(hwnd, entry) {
                     this.placed++
                     this.placedHwnds[hwnd] := true
@@ -387,6 +442,14 @@ class RestoreJob {
         for entry in this.remaining {
             hwnd := FindMatchingWindow(entry, filtered, DebugLog)
             if hwnd {
+                ; Remove matched hwnd from filtered so subsequent entries can't claim it
+                filteredNext := []
+                for h in filtered {
+                    if h != hwnd
+                        filteredNext.Push(h)
+                }
+                filtered := filteredNext
+
                 if IsAlreadyPlaced(hwnd, entry) {
                     this.placed++
                     this.placedHwnds[hwnd] := true
@@ -439,14 +502,16 @@ class RestoreJob {
         }
         DebugLog(msg)
 
-        ; Remember this layout for the current monitor config
-        fp := GetMonitorFingerprint()
-        global Settings
-        if !Settings.Has("monitorProfiles")
-            Settings["monitorProfiles"] := Map()
-        Settings["monitorProfiles"][fp] := this.layout["name"]
-        SaveSettings()
-        DebugLog("Saved profile mapping: " . fp . " -> " . this.layout["name"])
+        ; Remember this layout for the current monitor config (skip for quick-restore)
+        if !this.noProfileUpdate {
+            fp := GetMonitorFingerprint()
+            global Settings
+            if !Settings.Has("monitorProfiles")
+                Settings["monitorProfiles"] := Map()
+            Settings["monitorProfiles"][fp] := this.layout["name"]
+            SaveSettings()
+            DebugLog("Saved profile mapping: " . fp . " -> " . this.layout["name"])
+        }
 
         ; Apply window rules after restore completes
         rules := Settings.Has("windowRules") ? Settings["windowRules"] : []
