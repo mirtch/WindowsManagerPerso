@@ -5,6 +5,10 @@
 ; ---------------------------------------------------------------------------
 ; Classes/window titles to always skip during capture
 ; ---------------------------------------------------------------------------
+; Per-exe snap ratio cache. Populated at runtime when snap compensation fires.
+; Key = exe name (lowercase), Value = ratio (actual_h / target_h, e.g. 3.0).
+global _SnapRatios := Map()
+
 global _SkipClasses := [
     "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "Progman", "WorkerW",
     "DV2ControlHost", "MsgrIMEWindowClass", "SysShadow",
@@ -125,8 +129,9 @@ CaptureWindowEntry(hwnd, vdMapData := 0) {
         else if minmax == -1
             state := "minimized"
 
-        ; Compute cleanTitle early so we can use it for workspace matching
-        cleanTitle    := CleanTitle(title, exe)
+        ; NOTE: local var must not share a case-insensitive name with CleanTitle()
+        ; (AHK v2 is case-insensitive: "cleanTitle" == "CleanTitle" causes UnsetError)
+        cTitle := CleanTitle(title, exe)
 
         ; Get process path and workspace for launch-missing support
         exePath       := ""
@@ -136,14 +141,16 @@ CaptureWindowEntry(hwnd, vdMapData := 0) {
             exePath := ProcessGetPath(pid)
             ; For VS Code / Cursor: read workspace from Cursor's storage.json
             if (StrLower(exe) == "cursor.exe" || StrLower(exe) == "code.exe")
-                workspacePath := GetVSCodeWorkspace(cleanTitle, exe)
+                workspacePath := GetVSCodeWorkspace(cTitle, exe)
+        } catch {
+            ; exePath/workspacePath stay empty on failure
         }
 
         monIdx := GetMonitorForWindow(hwnd)
         monDPI := GetMonitorDPI(monIdx)
 
         ; Virtual desktop info
-        deskIdx := 0
+        deskIdx  := 0
         deskGuid := ""
         if vdMapData {
             deskIdx := VD_GetDesktopIndex(hwnd, vdMapData)
@@ -157,20 +164,21 @@ CaptureWindowEntry(hwnd, vdMapData := 0) {
         entry["exePath"]       := exePath
         entry["workspacePath"] := workspacePath
         entry["title"]         := title
-        entry["cleanTitle"]    := cleanTitle
-        entry["hwnd"]         := hwnd          ; debug only; not used for matching
-        entry["class"]        := cls
-        entry["x"]            := x
-        entry["y"]            := y
-        entry["w"]            := w
-        entry["h"]            := h
-        entry["state"]        := state
-        entry["monitorIndex"] := monIdx
-        entry["dpi"]          := monDPI
-        entry["desktopIndex"] := deskIdx
-        entry["desktopGuid"]  := deskGuid
+        entry["cleanTitle"]    := cTitle
+        entry["hwnd"]          := hwnd
+        entry["class"]         := cls
+        entry["x"]             := x
+        entry["y"]             := y
+        entry["w"]             := w
+        entry["h"]             := h
+        entry["state"]         := state
+        entry["monitorIndex"]  := monIdx
+        entry["dpi"]           := monDPI
+        entry["desktopIndex"]  := deskIdx
+        entry["desktopGuid"]   := deskGuid
         return entry
     } catch as e {
+        DebugLog("CaptureEntry FAIL hwnd=" . hwnd . " err=" . e.Message)
         return false
     }
 }
@@ -189,47 +197,54 @@ IsValidWindow(hwnd) {
         "UInt", 4)
 
     ; Value 2 (DWM_CLOAKED_SHELL) = window on another virtual desktop → keep it.
-    ; Value 1 (DWM_CLOAKED_APP) or 4 (inherited) = truly hidden UWP frame → skip.
-    if cloaked && cloaked != 2
+    ; Value 1 (DWM_CLOAKED_APP) = app explicitly cloaked (truly hidden UWP) → skip.
+    ; Value 4 (DWM_CLOAKED_INHERITED) = inherited from parent — on Win11 24H2 this is
+    ;   returned for normal visible windows too, so let IsWindowVisible decide below.
+    if cloaked == 1
         return false
 
-    ; Must be visible (skip for other-desktop windows which are cloaked but valid)
-    if cloaked != 2 && !DllCall("IsWindowVisible", "Ptr", hwnd)
-        return false
+    ; Must be visible — use WS_VISIBLE style flag directly (DllCall IsWindowVisible
+    ; was returning 0 for all windows on Win11 24H2 in some launch contexts).
+    ; Skip this check for other-desktop windows which have cloaked=2.
+    if cloaked != 2 {
+        try {
+            if !(WinGetStyle(hwnd) & 0x10000000)  ; WS_VISIBLE
+                return false
+        } catch {
+            return false
+        }
+    }
 
     ; Must have a non-empty title
     try {
-        title := WinGetTitle(hwnd)
-        if title == ""
+        if WinGetTitle(hwnd) == ""
             return false
-    } catch Error {
+    } catch {
         return false
     }
 
     ; Must have a process name
     try {
-        exe := WinGetProcessName(hwnd)
-        if exe == ""
+        if WinGetProcessName(hwnd) == ""
             return false
-    } catch Error {
+    } catch {
         return false
     }
 
     ; Must be reasonably sized
     try {
-        WinGetPos(&x, &y, &w, &h, hwnd)
+        WinGetPos(, , &w, &h, hwnd)
         if w < 50 || h < 50
             return false
-    } catch Error {
+    } catch {
         return false
     }
 
     ; Skip tool windows (WS_EX_TOOLWINDOW) - tiny floating helpers
     try {
-        exStyle := WinGetExStyle(hwnd)
-        if exStyle & 0x80   ; WS_EX_TOOLWINDOW
+        if WinGetExStyle(hwnd) & 0x80  ; WS_EX_TOOLWINDOW
             return false
-    } catch Error {
+    } catch {
         ; silently ignore - some windows don't support WinGetExStyle
     }
 
@@ -309,14 +324,14 @@ FindMatchingWindow(entry, candidateHwnds, debugCb := false) {
 
     if pass1.Length == 1 {
         if debugCb
-            debugCb("Match (pass1 unique): " . entry["exe"] . " | " . WinGetTitle(pass1[1]))
+            try debugCb("Match (pass1 unique): " . entry["exe"] . " | " . WinGetTitle(pass1[1]))
         return pass1[1]
     }
 
     if pass1.Length > 1 {
         best := BestTitleMatch(targetClean, pass1, debugCb)
         if debugCb
-            debugCb("Match (pass1 best-title): " . entry["exe"] . " | " . (best ? WinGetTitle(best) : "no match"))
+            try debugCb("Match (pass1 best-title): " . entry["exe"] . " | " . (best ? WinGetTitle(best) : "no match"))
         return best
     }
 
@@ -337,7 +352,7 @@ FindMatchingWindow(entry, candidateHwnds, debugCb := false) {
 
     best := BestTitleMatch(targetClean, pass2, debugCb)
     if debugCb
-        debugCb("Match (pass2 exe-only): " . entry["exe"] . " | " . (best ? WinGetTitle(best) : "no match"))
+        try debugCb("Match (pass2 exe-only): " . entry["exe"] . " | " . (best ? WinGetTitle(best) : "no match"))
     return best
 }
 
@@ -426,6 +441,14 @@ IsAlreadyPlaced(hwnd, entry) {
             return false
         if Abs(h - entry["h"]) > tolerance
             return false
+        ; Check virtual desktop — wrong desktop = needs PlaceWindow even if position matches
+        if entry.Has("desktopGuid") && entry["desktopGuid"] != "" {
+            guidBuf := VD_GetDesktopId(hwnd)
+            curGuid := guidBuf ? VD_GuidToString(guidBuf) : "FAIL"
+            DebugLog("IsAlreadyPlaced VD hwnd=" . hwnd . " cur=" . curGuid . " saved=" . entry["desktopGuid"])
+            if guidBuf && curGuid != entry["desktopGuid"]
+                return false
+        }
         return true
     } catch {
         return false
@@ -437,29 +460,17 @@ IsAlreadyPlaced(hwnd, entry) {
 ; Handles the maximized-on-correct-monitor case.
 ; ---------------------------------------------------------------------------
 PlaceWindow(hwnd, entry, desktopGuids := 0) {
-    ; --- Move to correct virtual desktop first ---
-    if entry.Has("desktopGuid") && entry["desktopGuid"] != "" {
-        try {
-            targetGuid := VD_StringToGuid(entry["desktopGuid"])
-            if targetGuid {
-                VD_MoveToDesktop(hwnd, targetGuid)
-                Sleep(80)   ; Give Windows time to process the desktop move
-                try WinShow(hwnd)   ; Ensure window is visible after desktop move (e.g. Parsec tray)
-            }
-        } catch as e {
-            DebugLog("PlaceWindow VD move failed for hwnd " . hwnd . ": " . e.Message)
-        }
-    }
-
+    global _SnapRatios
     state := entry["state"]
 
-    ; --- Minimized: just minimize and return ---
+    ; --- Minimized: just minimize, then move to correct desktop ---
     if state == "minimized" {
         try WinMinimize(hwnd)
+        _MoveToSavedDesktop(hwnd, entry)
         return
     }
 
-    ; --- Un-maximize first so we can move freely (some windows don't support this) ---
+    ; --- Un-maximize/minimize if needed so we can move freely ---
     try {
         currentMinMax := WinGetMinMax(hwnd)
         if currentMinMax != 0
@@ -469,18 +480,113 @@ PlaceWindow(hwnd, entry, desktopGuids := 0) {
     ; --- Clamp destination to a valid monitor area ---
     clamped := ClampToMonitor(entry["x"], entry["y"], entry["w"], entry["h"])
 
+    ; --- Set position/size ---
+    ; WinShow is called before WinMove to ensure the window is in a visible,
+    ; active state.  Chromium apps (Edge, Chrome) defer resize processing
+    ; when cloaked (DWM_CLOAKED_SHELL, i.e. on another virtual desktop).
+    ; Without WinShow, WinMove appears to succeed but Edge snaps back to the
+    ; monitor height the moment the user switches to that desktop.
+    ; NOTE: WinShow brings the window to the current desktop as a side effect.
+    ; VD restore (moving back to the saved desktop) is handled separately in
+    ; _MoveToSavedDesktop below and requires the internal COM API.
+    DetectHiddenWindows(true)
+    try WinShow(hwnd)
+    DetectHiddenWindows(false)
+    Sleep(30)
+
     try {
         if state == "maximized" {
-            ; Move to target monitor first (small temporary size), then maximize.
-            ; This ensures WinMaximize uses the right monitor.
+            DetectHiddenWindows(true)
             WinMove(clamped["x"] + 50, clamped["y"] + 50, 400, 300, hwnd)
+            DetectHiddenWindows(false)
             Sleep(30)
             WinMaximize(hwnd)
         } else {
-            WinMove(clamped["x"], clamped["y"], clamped["w"], clamped["h"], hwnd)
+            ; Disable Windows Snap so WinMove is not intercepted by snap zones.
+            ; WinMove handles DPI correctly (raw DllCall("SetWindowPos") caused 3x
+            ; size inflation on this monitor).
+            static SPI_SETWINARRANGING := 0x0083
+
+            ; Pre-compensate if this exe has a known snap ratio from a previous restore.
+            _exe := ""
+            try _exe := StrLower(WinGetProcessName(hwnd))
+            _initH := clamped["h"]
+            _initW := clamped["w"]
+            if _exe != "" && _SnapRatios.Has(_exe) {
+                _ratio := _SnapRatios[_exe]
+                _initH := Round(clamped["h"] / _ratio)
+                ; Width does not snap — keep target width as-is
+            }
+
+            DllCall("SystemParametersInfo", "UInt", SPI_SETWINARRANGING, "UInt", 0, "Ptr", 0, "UInt", 0)
+            DetectHiddenWindows(true)
+            WinMove(clamped["x"], clamped["y"], _initW, _initH, hwnd)
+            Sleep(50)
+            WinMove(clamped["x"], clamped["y"], _initW, _initH, hwnd)
+            DetectHiddenWindows(false)
+            DllCall("SystemParametersInfo", "UInt", SPI_SETWINARRANGING, "UInt", 1, "Ptr", 0, "UInt", 0)
+            Sleep(100)
+            WinGetPos(&_ax, &_ay, &_aw, &_ah, hwnd)
+            ; Safety net: if snap still occurs (e.g. window was already visible),
+            ; compensate. Threshold 1.3x catches real snaps (e.g. 1392→2180 = 1.566x)
+            ; while tolerating normal border/padding differences (<5%, well under 1.3x).
+            if (_ah > clamped["h"] * 1.3 && clamped["h"] > 0) {
+                _ratio := _ah / clamped["h"]
+                if _exe != ""
+                    _SnapRatios[_exe] := _ratio
+                _newH := Round(clamped["h"] / _ratio)
+                _newW := (_aw > clamped["w"] * 1.5) ? Round(clamped["w"] / _ratio) : clamped["w"]
+                DllCall("SystemParametersInfo", "UInt", SPI_SETWINARRANGING, "UInt", 0, "Ptr", 0, "UInt", 0)
+                DetectHiddenWindows(true)
+                WinMove(clamped["x"], clamped["y"], _newW, _newH, hwnd)
+                Sleep(50)
+                WinMove(clamped["x"], clamped["y"], _newW, _newH, hwnd)
+                DetectHiddenWindows(false)
+                DllCall("SystemParametersInfo", "UInt", SPI_SETWINARRANGING, "UInt", 1, "Ptr", 0, "UInt", 0)
+                Sleep(100)
+                WinGetPos(&_ax, &_ay, &_aw, &_ah, hwnd)
+            }
+            DebugLog("PlaceWindow verify hwnd=" . hwnd . " actual=[" . _ax . "," . _ay . " " . _aw . "x" . _ah . "] target=[" . clamped["x"] . "," . clamped["y"] . " " . clamped["w"] . "x" . clamped["h"] . "]")
         }
     } catch as e {
-        DebugLog("PlaceWindow WinMove failed for hwnd " . hwnd . ": " . e.Message)
+        DebugLog("PlaceWindow position failed for hwnd " . hwnd . ": " . e.Message)
+    }
+
+    ; --- Move to correct virtual desktop AFTER positioning ---
+    ; Do NOT call WinShow after VD_MoveToDesktop — it promotes the window to the
+    ; current desktop, undoing the VD move.
+    _MoveToSavedDesktop(hwnd, entry)
+}
+
+_MoveToSavedDesktop(hwnd, entry) {
+    if !entry.Has("desktopGuid") || entry["desktopGuid"] == ""
+        return
+    savedGuid := entry["desktopGuid"]
+    curBuf := VD_GetDesktopId(hwnd)
+    curGuid := curBuf ? VD_GuidToString(curBuf) : "unknown"
+    if curGuid == savedGuid
+        return
+    try {
+        targetGuid := VD_StringToGuid(savedGuid)
+        if !targetGuid
+            return
+
+        ; Try the internal API first — works for windows owned by other processes
+        ; (Edge, Chrome, Explorer, etc.) where the public API returns E_ACCESSDENIED.
+        ok := false
+        if VD_Internal_Init()
+            ok := VD_Internal_MoveToDesktop(hwnd, targetGuid)
+
+        ; Fall back to the public API (works only for AHK-owned windows)
+        if !ok
+            ok := VD_MoveToDesktop(hwnd, targetGuid)
+
+        Sleep(30)
+        afterBuf := VD_GetDesktopId(hwnd)
+        afterGuid := afterBuf ? VD_GuidToString(afterBuf) : "?"
+        DebugLog("VD move hwnd=" . hwnd . " ok=" . ok . " after=" . afterGuid . " wanted=" . savedGuid)
+    } catch as e {
+        DebugLog("VD move exception hwnd=" . hwnd . ": " . e.Message)
     }
 }
 

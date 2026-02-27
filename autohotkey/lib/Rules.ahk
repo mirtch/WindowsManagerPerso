@@ -76,9 +76,10 @@ _ApplyRule(hwnd, rule) {
         }
     }
     if rule.Has("state") {
-        if rule["state"] == "maximized"
+        if rule["state"] == "maximized" {
             try WinMaximize(hwnd)
-        else if rule["state"] == "minimized"
+        } else if rule["state"] == "minimized" {
             try WinMinimize(hwnd)
+        }
     }
 }

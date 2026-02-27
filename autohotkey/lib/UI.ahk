@@ -33,6 +33,13 @@ SetupTray() {
     _OnErrorLog(*) {
         ShowErrorLog()
     }
+    _OnViewDebugLog(*) {
+        global DebugFile
+        if FileExist(DebugFile)
+            Run("notepad.exe `"" . DebugFile . "`"")
+        else
+            MsgBox("No debug log yet.`n`nEnable debug mode first:`nSettings > Advanced > Debug mode", "Debug Log", "Icon!")
+    }
     _OnCycle(*) {
         CycleLayoutAction()
     }
@@ -55,6 +62,7 @@ SetupTray() {
     tray.Add("Quick Switch`tCtrl+Alt+Tab",    _OnQuickSwitch)
     tray.Add("Settings",                      _OnSettings)
     tray.Add("Error Log",                    _OnErrorLog)
+    tray.Add("Debug Log",                    _OnViewDebugLog)
     tray.Add()
     tray.Add("Reload Script",                _OnReload)
     tray.Add("Exit",                         _OnExit)
