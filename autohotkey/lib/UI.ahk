@@ -236,7 +236,7 @@ ShowErrorLog() {
         for err in _ErrorHistory
             content .= "[" . err["time"] . "] " . err["title"] . ": " . err["msg"] . "`r`n`r`n"
     }
-    logGui.Add("Edit", "w500 h300 ReadOnly -WantReturn", content)
+    logGui.Add("Edit", "w500 h300 ReadOnly -WantReturn Background2A2A3E", content)
     logGui.Add("Button", "Default w80", "Close").OnEvent("Click", (*) => logGui.Destroy())
     logGui.OnEvent("Close", (*) => logGui.Destroy())
     ApplyDarkTheme(logGui)
@@ -263,12 +263,12 @@ ApplyDarkTheme(guiObj) {
 ; ---------------------------------------------------------------------------
 ShowSaveDialog(callback) {
     saveGui := Gui("+AlwaysOnTop +Owner", "Save Layout")
-    saveGui.SetFont("s10", "Segoe UI")
+    saveGui.SetFont("s10 cFFFFFF", "Segoe UI")
     saveGui.MarginX := 14
     saveGui.MarginY := 10
 
     saveGui.Add("Text", , "Layout name (leave blank for 'Last'):")
-    nameEdit := saveGui.Add("Edit", "w260 vLayoutName", "Last")
+    nameEdit := saveGui.Add("Edit", "w260 Background2A2A3E vLayoutName", "Last")
 
     btnRow := saveGui.Add("Button", "Default w120", "Save")
     btnRow.OnEvent("Click", OnSave)
@@ -306,7 +306,7 @@ ShowRestoreDialog(layoutNames, callback) {
     }
 
     restGui := Gui("+AlwaysOnTop +Owner", "Restore Layout")
-    restGui.SetFont("s10", "Segoe UI")
+    restGui.SetFont("s10 cFFFFFF", "Segoe UI")
     restGui.MarginX := 14
     restGui.MarginY := 10
 
@@ -314,7 +314,7 @@ ShowRestoreDialog(layoutNames, callback) {
     lb := restGui.Add("ListBox", "w200 r12 vSelection")
 
     ; Preview panel on the right
-    preview := restGui.Add("Edit", "x+10 yp w320 r12 ReadOnly -WantReturn")
+    preview := restGui.Add("Edit", "x+10 yp w320 r12 ReadOnly -WantReturn Background2A2A3E")
 
     ; Populate list with window counts
     for name in layoutNames {
@@ -422,7 +422,7 @@ ShowManageDialog() {
     global Layouts, Settings
 
     mgGui := Gui("+Resize +MinSize420x300", "Manage Layouts")
-    mgGui.SetFont("s10", "Segoe UI")
+    mgGui.SetFont("s10 cFFFFFF", "Segoe UI")
     mgGui.MarginX := 14
     mgGui.MarginY := 10
 
@@ -553,24 +553,28 @@ ShowSettingsDialog() {
     global Settings, Layouts
 
     setGui := Gui("+AlwaysOnTop +Owner", "Settings - Workspace Layout Manager")
-    setGui.SetFont("s10", "Segoe UI")
-    setGui.MarginX := 14
-    setGui.MarginY := 10
+    setGui.SetFont("s10 cFFFFFF", "Segoe UI")
+    setGui.MarginX := 16
+    setGui.MarginY := 12
 
-    tabs := setGui.Add("Tab3", "w380 h320", ["General", "Startup", "Advanced"])
+    ; Tab3 dimensions stored so buttons can be placed precisely below.
+    ; "y+N" after UseTab(0) is relative to the last in-tab control, which
+    ; can land inside the Tab3's visual area — use explicit Y instead.
+    tabH := 260
+    tabs := setGui.Add("Tab3", "w420 h" . tabH, ["General", "Startup", "Advanced"])
 
-    ; Tab 1: General
+    ; ── Tab 1: General ──────────────────────────────────────────────────────
     tabs.UseTab(1)
     cbLaunch := setGui.Add("Checkbox", "vLaunchMissing", "Launch missing apps when restoring")
     cbLaunch.Value := Settings.Has("launchMissing") ? Settings["launchMissing"] : 0
 
-    setGui.Add("Text", "xp y+10", "Auto-save interval (minutes, 0 = off):")
-    autoSaveEdit := setGui.Add("Edit", "w70 Number vAutoSaveMinutes",
+    setGui.Add("Text", "xp y+16", "Auto-save interval (minutes, 0 = off):")
+    autoSaveEdit := setGui.Add("Edit", "xp y+4 w70 Number Background2A2A3E vAutoSaveMinutes",
         Settings.Has("autoSaveMinutes") ? Settings["autoSaveMinutes"] : 15)
 
-    setGui.Add("Text", "xp y+10", "Notification level:")
+    setGui.Add("Text", "xp y+16", "Notification level:")
     notifLevels := ["verbose", "normal", "errors", "silent"]
-    ddlNotif := setGui.Add("DropDownList", "w200 vNotificationLevel", notifLevels)
+    ddlNotif := setGui.Add("DropDownList", "xp y+4 w200 vNotificationLevel", notifLevels)
     currentNotif := Settings.Has("notificationLevel") ? Settings["notificationLevel"] : "normal"
     notifIdx := 2
     Loop notifLevels.Length {
@@ -581,16 +585,16 @@ ShowSettingsDialog() {
     }
     ddlNotif.Choose(notifIdx)
 
-    ; Tab 2: Startup
+    ; ── Tab 2: Startup ──────────────────────────────────────────────────────
     tabs.UseTab(2)
     cbAuto := setGui.Add("Checkbox", "vAutoRestore", "Auto-restore layout on login")
     cbAuto.Value := Settings.Has("autoRestore") ? Settings["autoRestore"] : 0
 
-    setGui.Add("Text", "xp y+10", "Startup layout:")
+    setGui.Add("Text", "xp y+16", "Startup layout:")
     names := ["(none)"]
     for k, _ in Layouts
         names.Push(k)
-    ddl := setGui.Add("DropDownList", "w250 vStartupLayout", names)
+    ddl := setGui.Add("DropDownList", "xp y+4 w280 vStartupLayout", names)
     startupVal := Settings.Has("startupLayout") ? Settings["startupLayout"] : ""
     choiceIdx := 1
     Loop names.Length {
@@ -601,11 +605,11 @@ ShowSettingsDialog() {
     }
     ddl.Choose(choiceIdx)
 
-    setGui.Add("Text", "xp y+10", "Restore delay after login (seconds):")
-    delayEdit := setGui.Add("Edit", "w70 Number vRestoreDelay",
+    setGui.Add("Text", "xp y+16", "Restore delay after login (seconds):")
+    delayEdit := setGui.Add("Edit", "xp y+4 w70 Number Background2A2A3E vRestoreDelay",
         Settings.Has("restoreDelay") ? Settings["restoreDelay"] : 10)
 
-    setGui.Add("GroupBox", "xp y+14 w350 h68", "Windows Startup Integration")
+    setGui.Add("Text", "xp y+20", "Windows Startup:")
     OnAddStartup(*) {
         AddToStartup()
         ShowToast("Added to Windows startup.")
@@ -614,21 +618,23 @@ ShowSettingsDialog() {
         RemoveFromStartup()
         ShowToast("Removed from Windows startup.")
     }
-    setGui.Add("Button", "xp+10 yp+22 w155", "Add to Startup").OnEvent("Click", OnAddStartup)
-    setGui.Add("Button", "x+8 w155", "Remove from Startup").OnEvent("Click", OnRemoveStartup)
+    setGui.Add("Button", "xp y+6 w150", "Add to Startup").OnEvent("Click", OnAddStartup)
+    setGui.Add("Button", "x+8 w170", "Remove from Startup").OnEvent("Click", OnRemoveStartup)
 
-    ; Tab 3: Advanced
+    ; ── Tab 3: Advanced ─────────────────────────────────────────────────────
     tabs.UseTab(3)
     cbDebug := setGui.Add("Checkbox", "vDebugMode", "Debug mode (log to debug.log)")
     cbDebug.Value := Settings.Has("debugMode") ? Settings["debugMode"] : 0
 
-    setGui.Add("Text", "xp y+10", "Max layout versions to keep:")
-    setGui.Add("Edit", "w70 Number vMaxLayoutVersions",
+    setGui.Add("Text", "xp y+16", "Max layout versions to keep:")
+    setGui.Add("Edit", "xp y+4 w70 Number Background2A2A3E vMaxLayoutVersions",
         Settings.Has("maxLayoutVersions") ? Settings["maxLayoutVersions"] : 3)
 
-    ; Buttons outside tabs
+    ; ── Buttons below tabs ──────────────────────────────────────────────────
     tabs.UseTab(0)
-    setGui.Add("Button", "xm y+14 Default w100", "Save").OnEvent("Click", OnSave)
+    ; Explicit Y below Tab3: MarginY(12) + tabH(260) + gap(10) = 282
+    btnY := 12 + tabH + 10
+    setGui.Add("Button", "xm y" . btnY . " Default w100", "Save").OnEvent("Click", OnSave)
     setGui.Add("Button", "x+8 w90", "Cancel").OnEvent("Click", (*) => setGui.Destroy())
 
     OnSave(*) {
