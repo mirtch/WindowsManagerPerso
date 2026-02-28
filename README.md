@@ -2,8 +2,12 @@
 
 Save and restore your entire Windows workspace — window positions, sizes, and virtual desktops — with a single hotkey.
 
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-☕-yellow?style=flat-square)](https://www.buymeacoffee.com/mirtch)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-%E2%98%95-yellow?style=flat-square)](https://www.buymeacoffee.com/mirtch)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
+
+## What it does
+
+You arrange your windows. Press `Ctrl+Alt+S` to save the layout. Press `Ctrl+Alt+R` to restore it — no matter how many windows you have, across how many monitors or virtual desktops. It automatically adapts to your system (resolution, monitor count, Windows version) with a one-click scan.
 
 ## Requirements
 
@@ -51,7 +55,7 @@ All layout data is saved in `%AppData%\WorkspaceLayoutManager\` and persists acr
 
 ## Support
 
-If this saves you time, feel free to [buy me a coffee ☕](https://www.buymeacoffee.com/mirtch) — appreciated but never required.
+If this saves you time, consider [buying me a coffee ☕](https://www.buymeacoffee.com/mirtch) — it keeps the project going and is always appreciated.
 
 ## License
 
