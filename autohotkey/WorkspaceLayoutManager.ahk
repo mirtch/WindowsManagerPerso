@@ -43,7 +43,7 @@ global DebugMode   := false
 global _ActiveRestoreJob := false   ; currently running RestoreJob, or false
 global _SaveLayoutsPending := false  ; debounce flag for SaveLayouts
 global _CurrentLayoutName := ""     ; name of the last restored layout
-global _DisplayChangeTimer := 0     ; debounce timer for WM_DISPLAYCHANGE
+global _DisplayChangeTimer := 0     ; handle of the pending debounce timer
 global _RestoreHistory := []        ; last 2 restored layout names for quick-switch
 global _CycleIndex := 0             ; current index for layout cycling
 global _LastScheduleCheck := ""     ; prevents duplicate schedule triggers within same minute
@@ -484,7 +484,6 @@ class RestoreJob {
         ; Re-enable foreground window changes
         DllCall("LockSetForegroundWindow", "UInt", 2)
         HideProgress()
-        global AppName
         msg := "Restore complete: " . this.placed . "/" . this.total . " windows placed."
         if this.remaining.Length > 0 {
             missing := ""
@@ -505,7 +504,6 @@ class RestoreJob {
         ; Remember this layout for the current monitor config (skip for quick-restore)
         if !this.noProfileUpdate {
             fp := GetMonitorFingerprint()
-            global Settings
             if !Settings.Has("monitorProfiles")
                 Settings["monitorProfiles"] := Map()
             Settings["monitorProfiles"][fp] := this.layout["name"]
@@ -518,7 +516,7 @@ class RestoreJob {
         if IsObject(rules) && rules.Length > 0
             ApplyWindowRules(rules)
 
-        global _ActiveRestoreJob := false
+        _ActiveRestoreJob := false
     }
 }
 
@@ -527,7 +525,7 @@ class RestoreJob {
 ; =============================================================================
 ToggleAutoRestoreAction() {
     global Settings
-    Settings["autoRestore"] := Settings.Has("autoRestore") ? !Settings["autoRestore"] : 1
+    Settings["autoRestore"] := Settings.Has("autoRestore") ? !Settings["autoRestore"] : true
     SaveSettings()
     state := Settings["autoRestore"] ? "ON" : "OFF"
     Notify("Auto-restore on login: " . state, "verbose")
@@ -754,7 +752,7 @@ ImportLayout() {
 ; HELPERS
 ; =============================================================================
 
-; Return sorted array of layout names (most recently saved first).
+; Return alphabetically sorted array of layout names.
 GetLayoutNames() {
     global Layouts
     names := []
@@ -809,7 +807,7 @@ DebugLog(msg) {
     if !DebugMode
         return
     try {
-        ts   := FormatTime(, "HH:mm:ss.") . SubStr(A_TickCount, -2)
+        ts   := FormatTime(, "HH:mm:ss.") . Format("{:03}", A_MSec)
         line := "[" . ts . "] " . msg . "`n"
         f    := FileOpen(DebugFile, "a", "UTF-8")
         f.Write(line)
@@ -823,7 +821,15 @@ DebugLog(msg) {
 
 OnDisplayChange(wParam, lParam, msg, hwnd) {
     global _DisplayChangeTimer
-    SetTimer(HandleDisplayChange, -2000)  ; 2s debounce
+    ; Cancel the previous timer before scheduling a new one so rapid
+    ; display-change events (hotplug often fires several messages) only
+    ; trigger HandleDisplayChange once, 2 s after the last event.
+    if _DisplayChangeTimer {
+        SetTimer(_DisplayChangeTimer, 0)
+        _DisplayChangeTimer := 0
+    }
+    _DisplayChangeTimer := HandleDisplayChange.Bind()
+    SetTimer(_DisplayChangeTimer, -2000)
     return 0
 }
 
@@ -844,8 +850,7 @@ HandleDisplayChange() {
         if Layouts.Has(layoutName) {
             DebugLog("Auto-switching to profile layout: " . layoutName)
             Notify("Monitors changed - restoring '" . layoutName . "'")
-            Sleep(1000)
-            RestoreLayout(layoutName)
+            SetTimer(() => RestoreLayout(layoutName), -1000)
             return
         }
     }
@@ -854,8 +859,7 @@ HandleDisplayChange() {
         if layout.Has("monitorFingerprint") && layout["monitorFingerprint"] == newFP {
             DebugLog("Auto-switching to matching layout: " . name)
             Notify("Monitors changed - restoring '" . name . "'")
-            Sleep(1000)
-            RestoreLayout(name)
+            SetTimer(() => RestoreLayout(name), -1000)
             return
         }
     }

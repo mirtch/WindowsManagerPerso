@@ -14,7 +14,7 @@ global _SkipClasses := [
     "DV2ControlHost", "MsgrIMEWindowClass", "SysShadow",
     "Button",                      ; Desktop "Show Desktop" button
     "Windows.UI.Core.CoreWindow",  ; Most UWP chrome (but not all)
-    "ApplicationFrameWindow",      ; UWP frame (still capture for position)
+    "ApplicationFrameWindow",      ; UWP frame — skipped (use inner CoreWindow instead)
 ]
 
 global _SkipExes := [
@@ -459,7 +459,7 @@ IsAlreadyPlaced(hwnd, entry) {
 ; Move, resize, and set state for a window according to a saved entry.
 ; Handles the maximized-on-correct-monitor case.
 ; ---------------------------------------------------------------------------
-PlaceWindow(hwnd, entry, desktopGuids := 0) {
+PlaceWindow(hwnd, entry) {
     global _SnapRatios
     state := entry["state"]
 

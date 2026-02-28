@@ -69,22 +69,6 @@ SetupTray() {
 }
 
 ; ---------------------------------------------------------------------------
-; Tray icon state (changes the icon to reflect current app state)
-; ---------------------------------------------------------------------------
-SetTrayIconState(state) {
-    switch state {
-        case "idle":
-            try TraySetIcon("shell32.dll", 162)
-        case "working":
-            try TraySetIcon("shell32.dll", 239)
-        case "error":
-            try TraySetIcon("shell32.dll", 110)
-        case "success":
-            try TraySetIcon("shell32.dll", 297)
-    }
-}
-
-; ---------------------------------------------------------------------------
 ; Toast-style notification (custom dark GUI, auto-dismisses)
 ; ---------------------------------------------------------------------------
 global _ToastGui := false
@@ -143,8 +127,11 @@ ShowProgress(msg) {
         try _ProgressText.Text := msg
         RegExMatch(msg, "(\d+)/(\d+)", &m)
         if m {
-            pct := Round(Integer(m[1]) / Integer(m[2]) * 100)
-            try _ProgressBar.Value := pct
+            total := Integer(m[2])
+            if total > 0 {
+                pct := Round(Integer(m[1]) / total * 100)
+                try _ProgressBar.Value := pct
+            }
         }
         return
     }
@@ -428,8 +415,8 @@ ShowManageDialog() {
 
     mgGui.Add("Text", , "Saved layouts:")
     lv := mgGui.Add("ListView", "w460 h260 -Multi Grid Background1E1E2E", ["Layout Name", "Windows", "Saved At"])
-    ; Set ListView text and background colors via Win32 messages
-    ; COLORREF for 1E1E2E = 0x2E1E1E, white = 0xFFFFFF
+    ; Set ListView text and background colors via Win32 messages.
+    ; COLORREF byte order is 0x00BBGGRR, so #1E1E2E (RGB) = 0x002E1E1E.
     SendMessage(0x1001, 0, 0x2E1E1E, lv)   ; LVM_SETBKCOLOR
     SendMessage(0x1026, 0, 0x2E1E1E, lv)   ; LVM_SETTEXTBKCOLOR
     SendMessage(0x1024, 0, 0xFFFFFF, lv)   ; LVM_SETTEXTCOLOR
@@ -747,31 +734,3 @@ ScanSystemConfig() {
     )
 }
 
-; ---------------------------------------------------------------------------
-; Small always-on-top status window used during long restores.
-; ---------------------------------------------------------------------------
-global _StatusWin := false
-global _StatusLbl := false
-
-ShowStatusWindow(msg) {
-    global _StatusWin, _StatusLbl
-    if _StatusWin {
-        try _StatusLbl.Text := msg
-        return
-    }
-    sw := Gui("+AlwaysOnTop -Caption +ToolWindow", "WLM Status")
-    sw.SetFont("s10", "Segoe UI")
-    sw.BackColor := "1A1A2E"
-    _StatusLbl := sw.Add("Text", "cWhite w300 Center", msg)
-    _StatusWin := sw
-    sw.Show("NoActivate")
-}
-
-CloseStatusWindow() {
-    global _StatusWin, _StatusLbl
-    if _StatusWin {
-        try _StatusWin.Destroy()
-        _StatusWin := false
-        _StatusLbl := false
-    }
-}

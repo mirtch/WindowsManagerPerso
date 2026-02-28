@@ -2,16 +2,6 @@
 ; Monitors.ahk - Monitor detection helpers for AutoHotkey v2
 ; =============================================================================
 
-; Returns the number of connected monitors.
-MonitorCount() {
-    return MonitorGetCount()
-}
-
-; Returns the index of the primary monitor.
-PrimaryMonitor() {
-    return MonitorGetPrimary()
-}
-
 ; Returns a Map with keys: left, top, right, bottom, w, h
 ; for the full bounds of the given monitor index (1-based).
 GetMonitorBounds(idx) {

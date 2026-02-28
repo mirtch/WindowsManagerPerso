@@ -17,7 +17,8 @@ ApplyWindowRules(rules) {
                 if _RuleMatches(rule, exe, title) {
                     _ApplyRule(hwnd, rule)
                     applied++
-                    DebugLog("Rule applied: " . rule["name"] . " -> " . exe)
+                    ruleName := rule.Has("name") ? rule["name"] : exe
+                    DebugLog("Rule applied: " . ruleName . " -> " . exe)
                     break
                 }
             }
@@ -40,41 +41,43 @@ _RuleMatches(rule, exe, title) {
 }
 
 _ApplyRule(hwnd, rule) {
-    if rule.Has("monitor") && rule["monitor"] > 0 {
-        count := MonitorGetCount()
-        if rule["monitor"] <= count {
-            area := GetMonitorWorkArea(rule["monitor"])
-            x := area["left"]
-            y := area["top"]
-            w := area["w"]
-            h := area["h"]
-            if rule.Has("position") {
-                pos := rule["position"]
-                if pos == "left-half" {
-                    w := w // 2
-                } else if pos == "right-half" {
-                    x := x + w // 2
-                    w := w // 2
-                } else if pos == "top-half" {
-                    h := h // 2
-                } else if pos == "bottom-half" {
-                    y := y + h // 2
-                    h := h // 2
-                } else if pos == "maximized" {
-                    try WinMaximize(hwnd)
-                    return
-                } else if pos == "minimized" {
-                    try WinMinimize(hwnd)
-                    return
-                }
-            }
-            try {
-                if WinGetMinMax(hwnd) != 0
-                    WinRestore(hwnd)
-                WinMove(x, y, w, h, hwnd)
-            }
+    ; Resolve the target monitor work area (falls back to current monitor if none specified)
+    if rule.Has("monitor") && rule["monitor"] > 0 && rule["monitor"] <= MonitorGetCount() {
+        area := GetMonitorWorkArea(rule["monitor"])
+    } else {
+        area := GetMonitorWorkArea(GetMonitorForWindow(hwnd))
+    }
+
+    if rule.Has("position") {
+        x := area["left"]
+        y := area["top"]
+        w := area["w"]
+        h := area["h"]
+        pos := rule["position"]
+        if pos == "left-half" {
+            w := w // 2
+        } else if pos == "right-half" {
+            x := x + w // 2
+            w := w // 2
+        } else if pos == "top-half" {
+            h := h // 2
+        } else if pos == "bottom-half" {
+            y := y + h // 2
+            h := h // 2
+        } else if pos == "maximized" {
+            try WinMaximize(hwnd)
+            return
+        } else if pos == "minimized" {
+            try WinMinimize(hwnd)
+            return
+        }
+        try {
+            if WinGetMinMax(hwnd) != 0
+                WinRestore(hwnd)
+            WinMove(x, y, w, h, hwnd)
         }
     }
+
     if rule.Has("state") {
         if rule["state"] == "maximized" {
             try WinMaximize(hwnd)
