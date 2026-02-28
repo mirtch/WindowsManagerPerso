@@ -519,12 +519,15 @@ PlaceWindow(hwnd, entry) {
             }
 
             DllCall("SystemParametersInfo", "UInt", SPI_SETWINARRANGING, "UInt", 0, "Ptr", 0, "UInt", 0)
-            DetectHiddenWindows(true)
-            WinMove(clamped["x"], clamped["y"], _initW, _initH, hwnd)
-            Sleep(50)
-            WinMove(clamped["x"], clamped["y"], _initW, _initH, hwnd)
-            DetectHiddenWindows(false)
-            DllCall("SystemParametersInfo", "UInt", SPI_SETWINARRANGING, "UInt", 1, "Ptr", 0, "UInt", 0)
+            try {
+                DetectHiddenWindows(true)
+                WinMove(clamped["x"], clamped["y"], _initW, _initH, hwnd)
+                Sleep(50)
+                WinMove(clamped["x"], clamped["y"], _initW, _initH, hwnd)
+                DetectHiddenWindows(false)
+            } finally {
+                DllCall("SystemParametersInfo", "UInt", SPI_SETWINARRANGING, "UInt", 1, "Ptr", 0, "UInt", 0)
+            }
             Sleep(100)
             WinGetPos(&_ax, &_ay, &_aw, &_ah, hwnd)
             ; Safety net: if snap still occurs (e.g. window was already visible),
@@ -537,12 +540,15 @@ PlaceWindow(hwnd, entry) {
                 _newH := Round(clamped["h"] / _ratio)
                 _newW := (_aw > clamped["w"] * 1.5) ? Round(clamped["w"] / _ratio) : clamped["w"]
                 DllCall("SystemParametersInfo", "UInt", SPI_SETWINARRANGING, "UInt", 0, "Ptr", 0, "UInt", 0)
-                DetectHiddenWindows(true)
-                WinMove(clamped["x"], clamped["y"], _newW, _newH, hwnd)
-                Sleep(50)
-                WinMove(clamped["x"], clamped["y"], _newW, _newH, hwnd)
-                DetectHiddenWindows(false)
-                DllCall("SystemParametersInfo", "UInt", SPI_SETWINARRANGING, "UInt", 1, "Ptr", 0, "UInt", 0)
+                try {
+                    DetectHiddenWindows(true)
+                    WinMove(clamped["x"], clamped["y"], _newW, _newH, hwnd)
+                    Sleep(50)
+                    WinMove(clamped["x"], clamped["y"], _newW, _newH, hwnd)
+                    DetectHiddenWindows(false)
+                } finally {
+                    DllCall("SystemParametersInfo", "UInt", SPI_SETWINARRANGING, "UInt", 1, "Ptr", 0, "UInt", 0)
+                }
                 Sleep(100)
                 WinGetPos(&_ax, &_ay, &_aw, &_ah, hwnd)
             }
