@@ -2,6 +2,9 @@
 
 Save and restore your entire Windows workspace — window positions, sizes, and virtual desktops — with a single hotkey.
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-☕-yellow?style=flat-square)](https://www.buymeacoffee.com/mirtch)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
+
 ## Requirements
 
 - **Windows 10 or 11**
@@ -45,3 +48,11 @@ All layout data is saved in `%AppData%\WorkspaceLayoutManager\` and persists acr
 
 - **Virtual desktop restore** (moving windows back to their saved desktop) requires **Windows 11 24H2 or later**. On older systems, windows are still placed on the correct monitor.
 - If something looks off after updating Windows, run **Scan & Auto-Configure** again from the Settings.
+
+## Support
+
+If this saves you time, feel free to [buy me a coffee ☕](https://www.buymeacoffee.com/mirtch) — appreciated but never required.
+
+## License
+
+MIT — free to use, modify, and share. See [LICENSE](LICENSE).
